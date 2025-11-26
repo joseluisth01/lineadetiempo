@@ -1,226 +1,143 @@
 <?php
 /**
- * Vista de Lista de Proyectos
+ * Gestión de Proyectos en Admin
  * 
- * Ubicación: public/class-pt-proyectos-view.php
+ * Ubicación: admin/class-pt-proyectos-admin.php
  */
 
 if (!defined('ABSPATH')) exit;
 
-class PT_Proyectos_View {
+class PT_Proyectos_Admin {
     
-    private static $instance = null;
-    
-    public static function getInstance() {
-        if (self::$instance == null) {
-            self::$instance = new PT_Proyectos_View();
-        }
-        return self::$instance;
-    }
-    
-    private function __construct() {
-        // Constructor vacío - toda la lógica está en los métodos estáticos
+    public function __construct() {
+        add_filter('manage_pt_proyecto_posts_columns', array($this, 'customColumns'));
+        add_action('manage_pt_proyecto_posts_custom_column', array($this, 'customColumnContent'), 10, 2);
+        add_filter('manage_edit-pt_proyecto_sortable_columns', array($this, 'sortableColumns'));
     }
     
     /**
-     * Renderizar lista de proyectos del cliente
+     * Columnas personalizadas
      */
-    public static function render() {
-        if (!PT_Auth::isLoggedIn()) {
-            wp_redirect(home_url('/login-proyectos'));
-            exit;
-        }
+    public function customColumns($columns) {
+        $new_columns = array();
+        $new_columns['cb'] = $columns['cb'];
+        $new_columns['title'] = 'Título';
+        $new_columns['direccion'] = 'Dirección';
+        $new_columns['fechas'] = 'Fechas';
+        $new_columns['estado'] = 'Estado';
+        $new_columns['clientes'] = 'Clientes';
+        $new_columns['hitos'] = 'Hitos';
+        $new_columns['date'] = 'Creado';
         
-        $user_id = PT_Auth::getCurrentUserId();
-        $user = PT_Auth::getCurrentUser();
-        $proyectos = self::getProyectosUsuario($user_id);
-        
-        // Cargar template
-        include PT_PLUGIN_DIR . 'templates/proyectos-list.php';
+        return $new_columns;
     }
     
     /**
-     * Obtener proyectos del usuario actual
+     * Contenido de columnas personalizadas
      */
-    public static function getProyectosUsuario($user_id) {
-        // Si es admin, mostrar todos
-        if (PT_Roles::isAdmin($user_id)) {
-            $args = array(
-                'post_type' => 'pt_proyecto',
-                'posts_per_page' => -1,
-                'post_status' => 'publish',
-                'orderby' => 'title',
-                'order' => 'ASC'
-            );
-            
-            return get_posts($args);
+    public function customColumnContent($column, $post_id) {
+        switch ($column) {
+            case 'direccion':
+                $direccion = get_post_meta($post_id, '_pt_direccion', true);
+                echo $direccion ? esc_html($direccion) : '—';
+                break;
+                
+            case 'fechas':
+                $fecha_inicio = get_post_meta($post_id, '_pt_fecha_inicio', true);
+                $fecha_fin = get_post_meta($post_id, '_pt_fecha_fin', true);
+                
+                if ($fecha_inicio && $fecha_fin) {
+                    echo '<strong>Inicio:</strong> ' . date('d/m/Y', strtotime($fecha_inicio)) . '<br>';
+                    echo '<strong>Fin:</strong> ' . date('d/m/Y', strtotime($fecha_fin));
+                    
+                    // Calcular duración
+                    $diff = abs(strtotime($fecha_fin) - strtotime($fecha_inicio));
+                    $dias = floor($diff / (60*60*24));
+                    echo '<br><small style="color: #666;">' . $dias . ' días</small>';
+                } else {
+                    echo '—';
+                }
+                break;
+                
+            case 'estado':
+                $estado = get_post_meta($post_id, '_pt_estado', true);
+                
+                $estados = array(
+                    'pendiente' => '<span style="background: #EDEDED; padding: 4px 10px; border-radius: 10px; font-size: 11px; font-weight: 600;">PENDIENTE</span>',
+                    'en_proceso' => '<span style="background: #FDC425; padding: 4px 10px; border-radius: 10px; font-size: 11px; font-weight: 600;">EN PROCESO</span>',
+                    'finalizado' => '<span style="background: #FFDE88; padding: 4px 10px; border-radius: 10px; font-size: 11px; font-weight: 600;">FINALIZADO</span>'
+                );
+                
+                echo $estados[$estado] ?? '—';
+                break;
+                
+            case 'clientes':
+                global $wpdb;
+                $table_rel = $wpdb->prefix . 'pt_user_proyecto';
+                $table_users = $wpdb->prefix . 'pt_users';
+                
+                $clientes = $wpdb->get_results($wpdb->prepare(
+                    "SELECT u.nombre, u.apellidos 
+                     FROM $table_users u
+                     INNER JOIN $table_rel ur ON u.id = ur.user_id
+                     WHERE ur.proyecto_id = %d AND u.active = 1
+                     LIMIT 3",
+                    $post_id
+                ));
+                
+                if (!empty($clientes)) {
+                    foreach ($clientes as $cliente) {
+                        echo '<div style="margin-bottom: 3px;">👤 ' . esc_html($cliente->nombre . ' ' . $cliente->apellidos) . '</div>';
+                    }
+                    
+                    $total = $wpdb->get_var($wpdb->prepare(
+                        "SELECT COUNT(*) FROM $table_rel WHERE proyecto_id = %d",
+                        $post_id
+                    ));
+                    
+                    if ($total > 3) {
+                        echo '<small style="color: #666;">+' . ($total - 3) . ' más</small>';
+                    }
+                } else {
+                    echo '<span style="color: #999;">Sin clientes</span>';
+                }
+                break;
+                
+            case 'hitos':
+                $hitos = PT_Hito::getHitosProyecto($post_id);
+                $total = count($hitos);
+                
+                if ($total > 0) {
+                    // Contar por estado
+                    $finalizados = 0;
+                    $en_proceso = 0;
+                    $pendientes = 0;
+                    
+                    foreach ($hitos as $hito) {
+                        $estado = get_post_meta($hito->ID, '_pt_estado', true);
+                        if ($estado === 'finalizado') $finalizados++;
+                        elseif ($estado === 'en_proceso') $en_proceso++;
+                        else $pendientes++;
+                    }
+                    
+                    echo '<strong>' . $total . ' hitos</strong><br>';
+                    echo '<small style="color: #FFDE88;">✓ ' . $finalizados . '</small> / ';
+                    echo '<small style="color: #FDC425;">⟳ ' . $en_proceso . '</small> / ';
+                    echo '<small style="color: #EDEDED;">○ ' . $pendientes . '</small>';
+                } else {
+                    echo '<span style="color: #999;">Sin hitos</span>';
+                }
+                break;
         }
-        
-        // Si es cliente, solo sus proyectos
-        return PT_Proyecto::getProyectosCliente($user_id);
     }
     
     /**
-     * Obtener datos de un proyecto para mostrar
+     * Columnas ordenables
      */
-    public static function getProyectoData($proyecto_id) {
-        $proyecto = get_post($proyecto_id);
-        
-        if (!$proyecto || $proyecto->post_type !== 'pt_proyecto') {
-            return null;
-        }
-        
-        $data = array(
-            'id' => $proyecto->ID,
-            'titulo' => $proyecto->post_title,
-            'descripcion' => $proyecto->post_content,
-            'direccion' => get_post_meta($proyecto->ID, '_pt_direccion', true),
-            'fecha_inicio' => get_post_meta($proyecto->ID, '_pt_fecha_inicio', true),
-            'fecha_fin' => get_post_meta($proyecto->ID, '_pt_fecha_fin', true),
-            'estado' => get_post_meta($proyecto->ID, '_pt_estado', true),
-            'thumbnail' => self::getProyectoThumbnail($proyecto->ID),
-            'imagenes' => get_post_meta($proyecto->ID, '_pt_imagenes', true),
-            'clientes' => self::getProyectoClientes($proyecto->ID),
-            'hitos_count' => self::getProyectoHitosCount($proyecto->ID)
-        );
-        
-        return $data;
-    }
-    
-    /**
-     * Obtener thumbnail del proyecto
-     */
-    private static function getProyectoThumbnail($proyecto_id) {
-        // Primero intentar con el thumbnail destacado
-        $thumbnail = get_the_post_thumbnail_url($proyecto_id, 'large');
-        
-        if ($thumbnail) {
-            return $thumbnail;
-        }
-        
-        // Si no, obtener la primera imagen de la galería
-        $imagenes = get_post_meta($proyecto_id, '_pt_imagenes', true);
-        
-        if (is_array($imagenes) && !empty($imagenes)) {
-            $img_url = wp_get_attachment_image_url($imagenes[0], 'large');
-            if ($img_url) {
-                return $img_url;
-            }
-        }
-        
-        // Si no hay nada, devolver placeholder
-        return PT_PLUGIN_URL . 'assets/images/placeholder.jpg';
-    }
-    
-    /**
-     * Obtener clientes asignados al proyecto
-     */
-    private static function getProyectoClientes($proyecto_id) {
-        global $wpdb;
-        $table_rel = $wpdb->prefix . 'pt_user_proyecto';
-        $table_users = $wpdb->prefix . 'pt_users';
-        
-        $clientes = $wpdb->get_results($wpdb->prepare(
-            "SELECT u.* 
-             FROM $table_users u
-             INNER JOIN $table_rel ur ON u.id = ur.user_id
-             WHERE ur.proyecto_id = %d AND u.active = 1
-             ORDER BY u.nombre, u.apellidos",
-            $proyecto_id
-        ));
-        
-        return $clientes;
-    }
-    
-    /**
-     * Obtener número de hitos del proyecto
-     */
-    private static function getProyectoHitosCount($proyecto_id) {
-        $hitos = PT_Hito::getHitosProyecto($proyecto_id);
-        return count($hitos);
-    }
-    
-    /**
-     * Verificar si el usuario tiene acceso al proyecto
-     */
-    public static function userCanAccessProyecto($user_id, $proyecto_id) {
-        // Los admins tienen acceso a todo
-        if (PT_Roles::isAdmin($user_id)) {
-            return true;
-        }
-        
-        // Los clientes solo a sus proyectos asignados
-        global $wpdb;
-        $table_rel = $wpdb->prefix . 'pt_user_proyecto';
-        
-        $count = $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $table_rel 
-             WHERE user_id = %d AND proyecto_id = %d",
-            $user_id,
-            $proyecto_id
-        ));
-        
-        return $count > 0;
-    }
-    
-    /**
-     * Obtener estadísticas del usuario
-     */
-    public static function getUserStats($user_id) {
-        $proyectos = self::getProyectosUsuario($user_id);
-        
-        $stats = array(
-            'total_proyectos' => count($proyectos),
-            'en_proceso' => 0,
-            'finalizados' => 0,
-            'pendientes' => 0,
-            'total_hitos' => 0
-        );
-        
-        foreach ($proyectos as $proyecto) {
-            $estado = get_post_meta($proyecto->ID, '_pt_estado', true);
-            
-            switch ($estado) {
-                case 'en_proceso':
-                    $stats['en_proceso']++;
-                    break;
-                case 'finalizado':
-                    $stats['finalizados']++;
-                    break;
-                case 'pendiente':
-                    $stats['pendientes']++;
-                    break;
-            }
-            
-            $stats['total_hitos'] += self::getProyectoHitosCount($proyecto->ID);
-        }
-        
-        return $stats;
-    }
-    
-    /**
-     * Obtener proyectos recientes del usuario
-     */
-    public static function getProyectosRecientes($user_id, $limit = 5) {
-        if (PT_Roles::isAdmin($user_id)) {
-            $args = array(
-                'post_type' => 'pt_proyecto',
-                'posts_per_page' => $limit,
-                'post_status' => 'publish',
-                'orderby' => 'modified',
-                'order' => 'DESC'
-            );
-            
-            return get_posts($args);
-        }
-        
-        $proyectos = PT_Proyecto::getProyectosCliente($user_id);
-        
-        // Ordenar por fecha de modificación
-        usort($proyectos, function($a, $b) {
-            return strtotime($b->post_modified) - strtotime($a->post_modified);
-        });
-        
-        return array_slice($proyectos, 0, $limit);
+    public function sortableColumns($columns) {
+        $columns['fechas'] = 'fecha_inicio';
+        return $columns;
     }
 }
+
+new PT_Proyectos_Admin();
