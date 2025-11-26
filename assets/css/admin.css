@@ -1,0 +1,51 @@
+/* CSS del Admin */
+.pt-admin-wrap {
+    background: white;
+    padding: 20px;
+    border-radius: 5px;
+    margin-top: 20px;
+}
+
+.pt-admin-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.pt-admin-table th,
+.pt-admin-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+.pt-admin-table th {
+    background: #f5f5f5;
+    font-weight: 600;
+}
+
+.pt-admin-table tr:hover {
+    background: #f9f9f9;
+}
+
+.pt-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.pt-badge.super_admin {
+    background: #dc3545;
+    color: white;
+}
+
+.pt-badge.admin {
+    background: #FDC425;
+    color: #000;
+}
+
+.pt-badge.cliente {
+    background: #28a745;
+    color: white;
+}
