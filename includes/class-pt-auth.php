@@ -19,15 +19,16 @@ class PT_Auth {
     }
     
     private function __construct() {
-        add_action('init', array($this, 'startSession'));
-        add_action('init', array($this, 'handleLogout'));
+        // Iniciar sesión lo antes posible
+        add_action('init', array($this, 'startSession'), 1);
+        add_action('init', array($this, 'handleLogout'), 10);
     }
     
     /**
      * Iniciar sesión PHP
      */
     public function startSession() {
-        if (!session_id()) {
+        if (!session_id() && !headers_sent()) {
             session_start();
         }
     }
@@ -43,16 +44,24 @@ class PT_Auth {
         $exists = $wpdb->get_var("SELECT COUNT(*) FROM $table WHERE role = 'super_admin'");
         
         if ($exists == 0) {
-            $wpdb->insert($table, array(
+            $password_hash = password_hash('adminproyectos', PASSWORD_BCRYPT);
+            
+            $inserted = $wpdb->insert($table, array(
                 'username' => 'administrador',
                 'email' => 'admin@proyectos.com',
-                'password' => password_hash('adminproyectos', PASSWORD_BCRYPT),
+                'password' => $password_hash,
                 'nombre' => 'Super',
                 'apellidos' => 'Administrador',
                 'role' => 'super_admin',
                 'active' => 1,
                 'created_at' => current_time('mysql')
             ));
+            
+            if ($inserted) {
+                error_log('PT: Super admin creado correctamente');
+            } else {
+                error_log('PT: Error al crear super admin - ' . $wpdb->last_error);
+            }
         }
     }
     
@@ -63,12 +72,30 @@ class PT_Auth {
         global $wpdb;
         $table = $wpdb->prefix . 'pt_users';
         
+        // Log para debugging
+        error_log("PT: Intentando login con usuario: " . $username);
+        
         $user = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM $table WHERE username = %s AND active = 1",
             $username
         ));
         
-        if ($user && password_verify($password, $user->password)) {
+        if (!$user) {
+            error_log("PT: Usuario no encontrado o inactivo: " . $username);
+            return array('success' => false, 'message' => 'Usuario o contraseña incorrectos');
+        }
+        
+        error_log("PT: Usuario encontrado, verificando contraseña...");
+        
+        // Verificar contraseña
+        if (password_verify($password, $user->password)) {
+            error_log("PT: Contraseña correcta, iniciando sesión...");
+            
+            // Iniciar sesión si no está iniciada
+            if (!session_id() && !headers_sent()) {
+                session_start();
+            }
+            
             // Actualizar último login
             $wpdb->update($table, 
                 array('last_login' => current_time('mysql')),
@@ -81,12 +108,15 @@ class PT_Auth {
             $_SESSION['pt_role'] = $user->role;
             $_SESSION['pt_nombre'] = $user->nombre . ' ' . $user->apellidos;
             
+            error_log("PT: Sesión iniciada para usuario ID: " . $user->id);
+            
             // Registrar en audit log
             PT_Audit_Log::log($user->id, 'login', 'user', $user->id, 'Inicio de sesión exitoso');
             
             return array('success' => true, 'user' => $user);
         }
         
+        error_log("PT: Contraseña incorrecta para usuario: " . $username);
         return array('success' => false, 'message' => 'Usuario o contraseña incorrectos');
     }
     
@@ -99,7 +129,13 @@ class PT_Auth {
                 PT_Audit_Log::log(self::getCurrentUserId(), 'logout', 'user', self::getCurrentUserId(), 'Cierre de sesión');
             }
             
-            session_destroy();
+            // Limpiar sesión
+            $_SESSION = array();
+            
+            if (session_id()) {
+                session_destroy();
+            }
+            
             wp_redirect(home_url('/login-proyectos'));
             exit;
         }
@@ -109,6 +145,11 @@ class PT_Auth {
      * Verificar si el usuario está logueado
      */
     public static function isLoggedIn() {
+        // Asegurar que la sesión está iniciada
+        if (!session_id() && !headers_sent()) {
+            session_start();
+        }
+        
         return isset($_SESSION['pt_user_id']) && !empty($_SESSION['pt_user_id']);
     }
     
@@ -116,6 +157,10 @@ class PT_Auth {
      * Obtener ID del usuario actual
      */
     public static function getCurrentUserId() {
+        if (!session_id() && !headers_sent()) {
+            session_start();
+        }
+        
         return isset($_SESSION['pt_user_id']) ? $_SESSION['pt_user_id'] : 0;
     }
     
@@ -123,6 +168,10 @@ class PT_Auth {
      * Obtener rol del usuario actual
      */
     public static function getCurrentUserRole() {
+        if (!session_id() && !headers_sent()) {
+            session_start();
+        }
+        
         return isset($_SESSION['pt_role']) ? $_SESSION['pt_role'] : '';
     }
     

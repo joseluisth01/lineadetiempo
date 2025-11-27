@@ -7,8 +7,19 @@
 
 if (!defined('ABSPATH')) exit;
 
+// Asegurar que la sesión está iniciada
+if (!session_id() && !headers_sent()) {
+    session_start();
+}
+
 $error = isset($_SESSION['pt_login_error']) ? $_SESSION['pt_login_error'] : '';
 unset($_SESSION['pt_login_error']);
+
+// Si ya está logueado, redirigir
+if (PT_Auth::isLoggedIn()) {
+    wp_redirect(home_url('/mis-proyectos'));
+    exit;
+}
 
 ?>
 <!DOCTYPE html>
@@ -131,6 +142,19 @@ unset($_SESSION['pt_login_error']);
             font-size: 13px;
             color: #666;
         }
+        
+        .debug-info {
+            background: #f0f0f0;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+            font-size: 12px;
+            font-family: monospace;
+        }
+        
+        .debug-info p {
+            margin: 5px 0;
+        }
     </style>
 </head>
 <body>
@@ -150,18 +174,43 @@ unset($_SESSION['pt_login_error']);
             <form method="POST" action="">
                 <div class="form-group">
                     <label for="pt_username">Usuario</label>
-                    <input type="text" id="pt_username" name="pt_username" required autocomplete="username">
+                    <input type="text" id="pt_username" name="pt_username" required autocomplete="username" 
+                           placeholder="Usuario">
                 </div>
                 
                 <div class="form-group">
                     <label for="pt_password">Contraseña</label>
-                    <input type="password" id="pt_password" name="pt_password" required autocomplete="current-password">
+                    <input type="password" id="pt_password" name="pt_password" required autocomplete="current-password"
+                           placeholder="Contraseña">
                 </div>
                 
                 <button type="submit" name="pt_login_submit" class="btn-login">
                     Iniciar Sesión
                 </button>
             </form>
+            
+            <?php 
+            // Mostrar info de debug solo para admin de WP
+            if (current_user_can('manage_options')): 
+                global $wpdb;
+                $table = $wpdb->prefix . 'pt_users';
+                $user_count = $wpdb->get_var("SELECT COUNT(*) FROM $table");
+                $admin_user = $wpdb->get_row("SELECT * FROM $table WHERE username = 'administrador' LIMIT 1");
+            ?>
+                <div class="debug-info">
+                    <strong>🔧 Info de Debug:</strong>
+                    <p>✓ Tabla pt_users: <?php echo $user_count; ?> usuarios</p>
+                    <?php if ($admin_user): ?>
+                        <p>✓ Super Admin existe (ID: <?php echo $admin_user->id; ?>)</p>
+                        <p>✓ Estado: <?php echo $admin_user->active ? 'Activo' : 'Inactivo'; ?></p>
+                        <p>✓ Rol: <?php echo $admin_user->role; ?></p>
+                    <?php else: ?>
+                        <p>✗ Super Admin NO encontrado</p>
+                    <?php endif; ?>
+                    <p>Sesión PHP: <?php echo session_id() ? 'Activa' : 'No activa'; ?></p>
+                    <p><small>Credenciales por defecto:<br>Usuario: administrador<br>Contraseña: adminproyectos</small></p>
+                </div>
+            <?php endif; ?>
         </div>
         
         <div class="login-footer">
