@@ -108,21 +108,41 @@ function gp_enqueue_assets() {
 }
 
 /**
+ * Interceptar la página de login para mostrar template standalone
+ */
+add_action('template_redirect', 'gp_intercept_login_page');
+
+function gp_intercept_login_page() {
+    if (is_page('login-proyectos')) {
+        $session = new GP_Session();
+        
+        // Si ya está logueado, mostrar dashboard
+        if ($session->is_logged_in()) {
+            return;
+        }
+        
+        // Mostrar login standalone (sin tema)
+        include GP_PLUGIN_DIR . 'login-standalone.php';
+        exit;
+    }
+}
+
+/**
  * Shortcode para formulario de login
  */
 function gp_login_form_shortcode() {
     $session = new GP_Session();
     
-    // Si ya está logueado, redirigir al dashboard
+    // Si ya está logueado, mostrar dashboard
     if ($session->is_logged_in()) {
         ob_start();
         include GP_PLUGIN_DIR . 'templates/dashboard.php';
         return ob_get_clean();
     }
     
-    ob_start();
-    include GP_PLUGIN_DIR . 'templates/login-form.php';
-    return ob_get_clean();
+    // Si no está logueado, redirigir a login standalone
+    wp_redirect(home_url('/login-proyectos/'));
+    exit;
 }
 
 /**
